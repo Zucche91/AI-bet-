@@ -1,141 +1,265 @@
 <!DOCTYPE html>
 <html lang="it"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Serie A Predictor</title>
+<title>Serie A Predictor Pro</title>
 <style>
 :root{--bg:#0f172a;--card:#1e293b;--tx:#e2e8f0;--mut:#94a3b8;--ac:#22c55e;--bl:#3b82f6;--or:#f59e0b}
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--tx);padding:12px;max-width:760px;margin:auto}
+*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--tx);padding:12px;max-width:760px;margin:auto}
 h1{font-size:20px;margin:6px 0}.card{background:var(--card);border-radius:12px;padding:12px;margin:10px 0}
-select,button,input{width:100%;padding:11px;margin:4px 0;border-radius:8px;border:1px solid #334155;background:#0b1220;color:var(--tx);font-size:15px}
+select,button,input,textarea{width:100%;padding:11px;margin:4px 0;border-radius:8px;border:1px solid #334155;background:#0b1220;color:var(--tx);font-size:15px}
 button{background:var(--ac);color:#04210f;font-weight:700;border:0;cursor:pointer}button.sec{background:#334155;color:var(--tx)}
-.tabs{display:flex;gap:6px}.tabs button{background:#334155;color:var(--tx)}.tabs button.on{background:var(--bl);color:#fff}
+.tabs{display:flex;gap:6px}.tabs button{background:#334155;color:var(--tx);padding:9px 4px;font-size:13px}.tabs button.on{background:var(--bl);color:#fff}
 .bar{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:8px 0;font-size:13px;font-weight:700}
 .bar div{display:flex;align-items:center;justify-content:center;color:#fff;min-width:0}
 .b1{background:var(--ac);color:#04210f!important}.bx{background:var(--or);color:#2b1a00!important}.b2{background:var(--bl)}
-.big{font-size:24px;font-weight:800}.mut{color:var(--mut);font-size:13px}.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:5px 3px;border-bottom:1px solid #334155;text-align:left}
-.ok{color:var(--ac)}.ko{color:#f87171}.hide{display:none}
-.fx{padding:8px 0;border-bottom:1px solid #334155}
+.big{font-size:20px;font-weight:800}.mut{color:var(--mut);font-size:13px}.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+table{width:100%;border-collapse:collapse;font-size:12px}td,th{padding:5px 3px;border-bottom:1px solid #334155;text-align:left}
+.ok{color:var(--ac)}.ko{color:#f87171}.hide{display:none}.fx{padding:8px 0;border-bottom:1px solid #334155}
 </style></head><body>
-<h1>⚽ Serie A Predictor</h1>
-<div class="mut">Modello Dixon-Coles con decadimento temporale · dati Football-Data.co.uk</div>
-<div class="card" id="status">Caricamento dati…</div>
+<h1>⚽ Serie A Predictor Pro</h1>
+<div class="mut">Dixon-Coles + xG + Elo + quote · calibrazione e tuning automatici</div>
+<div class="card" id="status">Avvio…</div>
 <div class="tabs"><button class="on" data-t="p">Previsione</button><button data-t="f">Prossime</button><button data-t="b">Backtest</button><button data-t="d">Dati</button></div>
 
 <div id="p" class="card">
  <div class="row"><div><label class="mut">Casa</label><select id="home"></select></div><div><label class="mut">Trasferta</label><select id="away"></select></div></div>
  <button id="go">Calcola previsione</button><div id="out"></div>
 </div>
-<div id="f" class="card hide"><button id="loadfx" class="sec">Carica prossime partite</button><div id="fxout"></div></div>
+<div id="f" class="card hide"><button id="loadfx" class="sec">Carica prossime partite (con quote)</button><div id="fxout"></div></div>
 <div id="b" class="card hide">
- <div class="mut">Walk-forward: ogni settimana il modello viene addestrato solo sul passato e prevede le partite successive, fino all'ultima giornata giocata.</div>
+ <div class="mut">Walk-forward sulla stagione in corso: ogni settimana il modello usa solo il passato.</div>
  <button id="runbt">Esegui backtest</button><div id="btout"></div>
 </div>
 <div id="d" class="card hide">
- <div class="mut">Se il download automatico è bloccato dal browser (CORS), scarica i CSV da football-data.co.uk/italym.php (file "Serie A") e caricali qui. Puoi selezionare più stagioni insieme.</div>
+ <div class="mut">1) Carica CSV storici scaricati da football-data.co.uk (anche più file insieme). Restano salvati nel browser.</div>
  <input type="file" id="file" accept=".csv" multiple>
- <button id="reload" class="sec">Riprova download automatico</button>
+ <div class="mut">2) Oppure incolla risultati: <code>2026-10-25 Inter 2 1 Fiorentina</code> (una partita per riga).</div>
+ <textarea id="paste" rows="4" placeholder="2026-10-25 Inter 2 1 Fiorentina"></textarea>
+ <button id="addp" class="sec">Aggiungi risultati incollati</button>
+ <button id="reload" class="sec">Riscarica dati e ottimizza di nuovo</button>
+ <button id="wipe" class="sec">Cancella dati salvati</button>
+ <div class="mut" id="info"></div>
 </div>
 
 <script>
-const SEASONS=["2425","2526","2627"], XI=0.0018, MAXG=10;
-const URLS=s=>`https://www.football-data.co.uk/mmz4281/${s}/I1.csv`;
+const DAY=864e5, MAXG=10, FACT=[1];for(let i=1;i<=MAXG;i++)FACT[i]=FACT[i-1]*i;
 const PROXIES=[u=>u,u=>"https://corsproxy.io/?"+encodeURIComponent(u),u=>"https://api.allorigins.win/raw?url="+encodeURIComponent(u)];
-let DATA=[],MODEL=null,TEAMS=[];
+const SEED=`2026-08-22 Genoa 0 2 Napoli|Parma 0 1 Cagliari|Inter 4 1 Monza|Udinese 1 1 Como
+2026-08-23 Atalanta 2 1 Sassuolo|Torino 1 2 Milan|Frosinone 0 1 Juventus|Venezia 0 2 Lecce
+2026-08-24 Roma 4 0 Fiorentina|Bologna 0 1 Lazio
+2026-08-28 Milan 2 0 Venezia
+2026-08-29 Juventus 2 0 Parma|Fiorentina 0 3 Frosinone|Monza 2 3 Udinese|Sassuolo 2 1 Torino
+2026-08-30 Cagliari 0 1 Inter|Lazio 1 0 Genoa|Napoli 1 2 Como
+2026-08-31 Atalanta 1 0 Bologna|Lecce 0 4 Roma
+2026-09-04 Genoa 1 4 Como
+2026-09-05 Roma 2 1 Atalanta|Inter 3 2 Napoli|Fiorentina 1 2 Torino
+2026-09-06 Juventus 1 1 Milan|Bologna 2 2 Sassuolo|Frosinone 3 2 Venezia|Parma 1 1 Monza
+2026-09-07 Udinese 1 2 Lazio|Cagliari 1 0 Lecce
+2026-09-11 Venezia 2 4 Fiorentina
+2026-09-12 Atalanta 1 2 Cagliari|Lazio 2 2 Milan|Genoa 1 1 Frosinone
+2026-09-13 Sassuolo 3 2 Juventus|Napoli 1 0 Bologna|Lecce 3 2 Monza
+2026-09-14 Inter 5 3 Udinese|Como 2 1 Parma|Torino 0 2 Roma
+2026-09-18 Monza 2 1 Sassuolo
+2026-09-19 Venezia 0 2 Lazio|Roma 2 2 Inter|Bologna 1 1 Torino|Udinese 0 1 Cagliari
+2026-09-20 Milan 3 0 Lecce|Juventus 2 0 Atalanta|Frosinone 2 0 Como|Parma 2 1 Genoa|Fiorentina 1 1 Napoli
+2026-10-10 Napoli 3 0 Frosinone|Inter 3 0 Parma|Genoa 2 1 Fiorentina
+2026-10-11 Cagliari 1 1 Juventus|Sassuolo 1 1 Milan|Lazio 3 1 Monza|Lecce 1 2 Bologna|Como 0 0 Roma
+2026-10-12 Torino 2 1 Udinese|Atalanta 3 1 Venezia
+2026-10-16 Frosinone 4 2 Sassuolo
+2026-10-17 Roma 2 0 Genoa|Bologna 1 3 Inter|Venezia 1 0 Napoli
+2026-10-18 Juventus 0 3 Lazio|Milan 3 2 Atalanta|Fiorentina 1 3 Como|Udinese 0 3 Lecce
+2026-10-19 Parma 0 3 Torino|Monza 4 0 Cagliari
+2026-10-23 Torino 3 2 Monza
+2026-10-24 Cagliari 0 2 Bologna|Como 2 0 Sassuolo|Napoli 3 3 Roma|Lazio 2 1 Parma`;
+let PAR={xi:0.002,reg:5,lam:0.5,wE:0.25,wO:0,T:1}, DATA=[], EL=null, MODEL=null;
+const tick=()=>new Promise(r=>setTimeout(r,0));
+const iso=d=>d.toISOString().slice(0,10);
+const pc=v=>(v*100).toFixed(0)+"%";
 
+/* ---------- PARSING ---------- */
+function oddsFrom(c,H,names){
+  for(const [a,b,d] of names){const i=H.indexOf(a),j=H.indexOf(b),k=H.indexOf(d);
+    if(i<0||j<0||k<0)continue;const o=[+c[i],+c[j],+c[k]];if(o.every(v=>v>1))return o;}
+  return null;}
 function parseCSV(t){
-  t=t.replace(/^\uFEFF/,"");const L=t.trim().split(/\r?\n/);const H=L[0].split(",");
-  const ix=n=>H.indexOf(n),iD=ix("Date"),iH=ix("HomeTeam"),iA=ix("AwayTeam"),iG=ix("FTHG"),iB=ix("FTAG"),iV=ix("Div");
+  t=t.replace(/^\uFEFF/,"");const L=t.trim().split(/\r?\n/),H=L[0].split(",");
+  const ix=n=>H.indexOf(n),iD=ix("Date"),iH=ix("HomeTeam"),iA=ix("AwayTeam"),iG=ix("FTHG"),iB=ix("FTAG"),iV=ix("Div"),iX=ix("HxG"),iY=ix("AxG");
   const out=[];
-  for(let k=1;k<L.length;k++){const c=L[k].split(",");if(c.length<5)continue;
+  for(let k=1;k<L.length;k++){const c=L[k].split(",");if(c.length<5||!c[iH])continue;
     if(iV>=0&&c[iV]&&c[iV]!=="I1")continue;
     const m=(c[iD]||"").match(/(\d+)\/(\d+)\/(\d+)/);if(!m)continue;
-    let y=+m[3];if(y<100)y+=2000;const d=new Date(Date.UTC(y,+m[2]-1,+m[1]));
-    out.push({d,h:c[iH],a:c[iA],x:c[iG]===""||c[iG]===undefined?null:+c[iG],y:c[iB]===""||c[iB]===undefined?null:+c[iB]});}
-  return out;
-}
+    let y=+m[3];if(y<100)y+=2000;
+    const o=oddsFrom(c,H,[["AvgH","AvgD","AvgA"],["B365H","B365D","B365A"]]);
+    const num=i=>i>=0&&c[i]!==""&&c[i]!==undefined&&!isNaN(+c[i])?+c[i]:null;
+    out.push({d:new Date(Date.UTC(y,+m[2]-1,+m[1])),h:c[iH],a:c[iA],x:num(iG),y:num(iB),hx:num(iX),ax:num(iY),o});}
+  return out;}
+function parseManual(t){
+  const out=[];for(const line of t.split(/\r?\n/)){const s=line.trim();if(!s)continue;
+    const sp=s.indexOf(" ");const d=new Date(s.slice(0,sp)+"T00:00:00Z");if(isNaN(d))continue;
+    for(const ch of s.slice(sp+1).split("|")){const w=ch.trim().split(/\s+/);if(w.length!==4)continue;
+      out.push({d,h:w[0],a:w[3],x:+w[1],y:+w[2],hx:null,ax:null,o:null});}}
+  return out;}
+const pack=ms=>ms.map(m=>[iso(m.d),m.h,m.a,m.x,m.y,m.hx,m.ax,m.o]);
+const unpack=a=>a.map(r=>({d:new Date(r[0]+"T00:00:00Z"),h:r[1],a:r[2],x:r[3],y:r[4],hx:r[5],ax:r[6],o:r[7]}));
+function seasonCodes(now){const y=now.getMonth()>=6?now.getFullYear():now.getFullYear()-1;
+  return [3,2,1,0].map(i=>{const a=y-i;return String(a%100).padStart(2,"0")+String((a+1)%100).padStart(2,"0");});}
 async function getText(u){for(const p of PROXIES){try{const r=await fetch(p(u),{cache:"no-store"});if(r.ok){const t=await r.text();if(t.includes("HomeTeam"))return t;}}catch(e){}}return null;}
 
+/* ---------- MODELLO DIXON-COLES ---------- */
 function tau(x,y,lh,la,r){if(x===0&&y===0)return 1-lh*la*r;if(x===0&&y===1)return 1+lh*r;if(x===1&&y===0)return 1+la*r;if(x===1&&y===1)return 1-r;return 1;}
-
-function fit(matches,ref,warm){
+function fit(matches,ref,par,warm){
   const teams=[...new Set(matches.flatMap(m=>[m.h,m.a]))].sort(),n=teams.length,id={};teams.forEach((t,i)=>id[t]=i);
-  const H=matches.map(m=>id[m.h]),A=matches.map(m=>id[m.a]),X=matches.map(m=>m.x),Y=matches.map(m=>m.y);
-  const W=matches.map(m=>Math.exp(-XI*Math.max(0,(ref-m.d)/864e5)));
-  const N=2*n+2;let p=new Float64Array(N);p[2*n]=0.25;p[2*n+1]=-0.05;
-  if(warm&&warm.teams){warm.teams.forEach((t,i)=>{if(id[t]!==undefined){p[id[t]]=warm.p[i];p[n+id[t]]=warm.p[warm.teams.length+i];}});p[2*n]=warm.p[2*warm.teams.length];p[2*n+1]=warm.p[2*warm.teams.length+1];}
-  const mm=new Float64Array(N),vv=new Float64Array(N),g=new Float64Array(N),it=warm?150:450,lr=0.05;
+  const H=[],A=[],X=[],Y=[],XE=[],YE=[],W=[];
+  for(const m of matches){H.push(id[m.h]);A.push(id[m.a]);X.push(m.x);Y.push(m.y);
+    const hx=m.hx!=null&&m.ax!=null;XE.push(hx?(1-par.lam)*m.x+par.lam*m.hx:m.x);YE.push(hx?(1-par.lam)*m.y+par.lam*m.ax:m.y);
+    W.push(Math.exp(-par.xi*Math.max(0,(ref-m.d)/DAY)));}
+  const N=2*n+2,p=new Float64Array(N);p[2*n]=0.25;p[2*n+1]=-0.05;
+  if(warm){warm.teams.forEach((t,i)=>{if(id[t]!==undefined){p[id[t]]=warm.p[i];p[n+id[t]]=warm.p[warm.n+i];}});p[2*n]=warm.p[2*warm.n];p[2*n+1]=warm.p[2*warm.n+1];}
+  const mm=new Float64Array(N),vv=new Float64Array(N),g=new Float64Array(N),it=warm?120:400,lr=0.05;
   for(let s=1;s<=it;s++){g.fill(0);const ha=p[2*n],rho=p[2*n+1];
     for(let k=0;k<H.length;k++){const h=H[k],a=A[k],x=X[k],y=Y[k],w=W[k];
       const lh=Math.exp(p[h]+p[n+a]+ha),la=Math.exp(p[a]+p[n+h]);let t=tau(x,y,lh,la,rho);if(t<1e-6)t=1e-6;
-      let du=x-lh,dv=y-la,dr=0;
+      let du=XE[k]-lh,dv=YE[k]-la,dr=0;
       if(x===0&&y===0){du+=-lh*la*rho/t;dv+=-lh*la*rho/t;dr=-lh*la/t;}
       else if(x===0&&y===1){du+=lh*rho/t;dr=lh/t;}
       else if(x===1&&y===0){dv+=la*rho/t;dr=la/t;}
       else if(x===1&&y===1){dr=-1/t;}
-      du*=w;dv*=w;dr*=w;
-      g[h]+=du;g[n+a]+=du;g[2*n]+=du;g[a]+=dv;g[n+h]+=dv;g[2*n+1]+=dr;}
-    for(let i=0;i<2*n;i++)g[i]=-(g[i])+0.01*p[i];g[2*n]=-g[2*n];g[2*n+1]=-g[2*n+1];
+      du*=w;dv*=w;dr*=w;g[h]+=du;g[n+a]+=du;g[2*n]+=du;g[a]+=dv;g[n+h]+=dv;g[2*n+1]+=dr;}
+    for(let i=0;i<2*n;i++)g[i]=-g[i]+par.reg*p[i];g[2*n]=-g[2*n];g[2*n+1]=-g[2*n+1];
+    const b1=1-Math.pow(0.9,s),b2=1-Math.pow(0.999,s);
     for(let i=0;i<N;i++){mm[i]=0.9*mm[i]+0.1*g[i];vv[i]=0.999*vv[i]+0.001*g[i]*g[i];
-      p[i]-=lr*(mm[i]/(1-Math.pow(0.9,s)))/(Math.sqrt(vv[i]/(1-Math.pow(0.999,s)))+1e-8)/ (1+s/200);}
+      p[i]-=lr*(mm[i]/b1)/(Math.sqrt(vv[i]/b2)+1e-8)/(1+s/200);}
     let mean=0;for(let i=0;i<n;i++)mean+=p[i];mean/=n;for(let i=0;i<n;i++)p[i]-=mean;
     p[2*n+1]=Math.max(-0.3,Math.min(0.3,p[2*n+1]));}
-  return {teams,id,p,n};
-}
-function fact(k){let r=1;for(let i=2;i<=k;i++)r*=i;return r;}
-function pois(k,l){return Math.exp(-l+k*Math.log(l))/fact(k);}
-function predict(M,h,a){
+  return {teams,id,p,n};}
+const pois=(k,l)=>Math.exp(-l+k*Math.log(l))/FACT[k];
+function predDC(M,h,a){
   const {id,p,n}=M,i=id[h],j=id[a],ha=p[2*n],rho=p[2*n+1];
-  const lh=Math.exp(p[i]+p[n+j]+ha),la=Math.exp(p[j]+p[n+i]);
-  const G=[];let s=0;
+  const ah=i===undefined?0:p[i],dh=i===undefined?0:p[n+i],aa=j===undefined?0:p[j],da=j===undefined?0:p[n+j];
+  const lh=Math.exp(ah+da+ha),la=Math.exp(aa+dh);let s=0,G=[];
   for(let x=0;x<=MAXG;x++){G[x]=[];for(let y=0;y<=MAXG;y++){const v=pois(x,lh)*pois(y,la)*Math.max(tau(x,y,lh,la,rho),0);G[x][y]=v;s+=v;}}
-  let p1=0,px=0,p2=0,best=[0,0,0],o25=0,btts=0;
+  let p1=0,px=0,p2=0,best=[0,0,0],o25=0,bt=0;
   for(let x=0;x<=MAXG;x++)for(let y=0;y<=MAXG;y++){const v=G[x][y]/s;
-    if(x>y)p1+=v;else if(x===y)px+=v;else p2+=v;if(v>best[2])best=[x,y,v];if(x+y>2)o25+=v;if(x>0&&y>0)btts+=v;}
-  const pr={"1":p1,"X":px,"2":p2},es=Object.keys(pr).sort((a,b)=>pr[b]-pr[a])[0];
-  return {p1,px,p2,es,pes:pr[es],score:best[0]+"-"+best[1],pscore:best[2],o25,btts,lh,la};
-}
-const pc=v=>(v*100).toFixed(0)+"%";
-function card(h,a,r){return `<div class="big">${h} – ${a}</div>
-<div class="bar"><div class="b1" style="width:${r.p1*100}%">1 ${pc(r.p1)}</div><div class="bx" style="width:${r.px*100}%">X ${pc(r.px)}</div><div class="b2" style="width:${r.p2*100}%">2 ${pc(r.p2)}</div></div>
-<div>Esito più probabile: <b>${r.es}</b> (${pc(r.pes)})</div>
-<div>Risultato più probabile: <b>${r.score}</b> (${pc(r.pscore)})</div>
-<div class="mut">Gol attesi ${r.lh.toFixed(2)} – ${r.la.toFixed(2)} · Over 2.5: ${pc(r.o25)} · Gol-Gol: ${pc(r.btts)}</div>`;}
+    if(x>y)p1+=v;else if(x===y)px+=v;else p2+=v;if(v>best[2])best=[x,y,v];if(x+y>2)o25+=v;if(x>0&&y>0)bt+=v;}
+  return {p:[p1,px,p2],score:best[0]+"-"+best[1],pscore:best[2],o25,btts:bt,lh,la};}
 
-function ready(){
-  const played=DATA.filter(m=>m.x!==null).sort((a,b)=>a.d-b.d);DATA=played;
-  if(played.length<100){document.getElementById("status").innerHTML="⚠️ Dati insufficienti ("+played.length+" partite). Vai su <b>Dati</b> e carica i CSV.";return;}
-  const last=played[played.length-1].d,ref=new Date(last.getTime()+864e5);
-  const cur=played.filter(m=>m.d>=new Date(ref-3*365*864e5));
-  MODEL=fit(cur,ref);TEAMS=MODEL.teams;
-  const opt=TEAMS.map(t=>`<option>${t}</option>`).join("");home.innerHTML=opt;away.innerHTML=opt;away.selectedIndex=1;
-  status.innerHTML=`✅ ${played.length} partite · ultimo risultato: <b>${last.toISOString().slice(0,10)}</b> · ${TEAMS.length} squadre`;
-}
-async function loadAuto(){
-  status.textContent="Scarico i dati…";DATA=[];
-  for(const s of SEASONS){const t=await getText(URLS(s));if(t)DATA.push(...parseCSV(t));}
-  ready();
-}
-file.onchange=async e=>{DATA=[];for(const f of e.target.files)DATA.push(...parseCSV(await f.text()));ready();};
-reload.onclick=loadAuto;
-go.onclick=()=>{if(!MODEL)return;if(home.value===away.value){out.textContent="Scegli due squadre diverse.";return;}
-  out.innerHTML=card(home.value,away.value,predict(MODEL,home.value,away.value));};
-loadfx.onclick=async()=>{
-  if(!MODEL)return;fxout.textContent="Carico…";const t=await getText("https://www.football-data.co.uk/fixtures.csv");
-  if(!t){fxout.textContent="Impossibile scaricare il calendario. Usa la tab Previsione.";return;}
-  const fx=parseCSV(t).filter(m=>MODEL.id[m.h]!==undefined&&MODEL.id[m.a]!==undefined).sort((a,b)=>a.d-b.d).slice(0,10);
-  fxout.innerHTML=fx.length?fx.map(m=>`<div class="fx"><div class="mut">${m.d.toISOString().slice(0,10)}</div>${card(m.h,m.a,predict(MODEL,m.h,m.a))}</div>`).join(""):"Nessuna partita di Serie A in calendario.";};
-runbt.onclick=async()=>{
-  btout.textContent="Calcolo in corso…";await new Promise(r=>setTimeout(r,30));
-  const D=DATA,start=D[Math.min(150,D.length-1)].d,rows=[];let d0=start,warm=null;
-  while(d0<=D[D.length-1].d){const d1=new Date(d0.getTime()+7*864e5);
-    const te=D.filter(m=>m.d>=d0&&m.d<d1),tr=D.filter(m=>m.d<d0);
-    if(te.length){const M=fit(tr,d0,warm);warm={teams:M.teams,p:M.p};
-      for(const m of te){if(M.id[m.h]===undefined||M.id[m.a]===undefined)continue;const r=predict(M,m.h,m.a);
-        const real=m.x>m.y?"1":m.x<m.y?"2":"X";rows.push({...r,m,real,sr:m.x+"-"+m.y});}
-      btout.textContent=`Calcolo… ${d0.toISOString().slice(0,10)}`;await new Promise(r=>setTimeout(r,0));}
+/* ---------- ELO ---------- */
+function runElo(D){
+  const R={},pre=[];let n=0,last=null;const get=t=>{if(R[t]===undefined)R[t]=n<200?1500:1450;return R[t];};
+  for(const m of D){if(last&&(m.d-last)/DAY>45)for(const t in R)R[t]=1500+0.75*(R[t]-1500);
+    last=m.d;const rh=get(m.h),ra=get(m.a);pre.push([rh,ra]);
+    const e=1/(1+Math.pow(10,-(rh-ra+65)/400)),s=m.x>m.y?1:m.x===m.y?0.5:0;
+    const dl=22*(Math.log(Math.abs(m.x-m.y)+1)+1)*(s-e);R[m.h]=rh+dl;R[m.a]=ra-dl;n++;}
+  return {R,pre};}
+function eloP(rh,ra){const e=1/(1+Math.pow(10,-(rh-ra+65)/400)),dr=0.30*(1-Math.pow(2*e-1,2));
+  let p1=Math.max(e-dr/2,0.02),p2=Math.max(1-e-dr/2,0.02);const s=p1+dr+p2;return [p1/s,dr/s,p2/s];}
+const oddsP=o=>{if(!o)return null;const q=o.map(v=>1/v),s=q[0]+q[1]+q[2];return q.map(v=>v/s);};
+function blend(dc,el,od,P){
+  let p=[0,1,2].map(i=>(1-P.wE)*dc[i]+P.wE*el[i]);
+  if(od&&P.wO>0)p=p.map((v,i)=>(1-P.wO)*v+P.wO*od[i]);
+  const q=p.map(v=>Math.pow(Math.max(v,1e-9),P.T)),s=q[0]+q[1]+q[2];return q.map(v=>v/s);}
+
+/* ---------- VALUTAZIONE E TUNING ---------- */
+function metrics(rows,f){
+  let ll=0,br=0,rps=0,ok=0;
+  for(const r of rows){const p=f(r),y=[0,0,0];y[r.real]=1;
+    ll-=Math.log(Math.max(p[r.real],1e-9));br+=(p[0]-y[0])**2+(p[1]-y[1])**2+(p[2]-y[2])**2;
+    rps+=((p[0]-y[0])**2+(p[0]+p[1]-y[0]-y[1])**2)/2;
+    if(p.indexOf(Math.max(...p))===r.real)ok++;}
+  const n=rows.length||1;return {n:rows.length,ll:ll/n,brier:br/n,rps:rps/n,acc:ok/n};}
+async function walk(D,from,to,par,step,prog){
+  const rows=[];let d0=from,warm=null;
+  while(d0<to){const d1=new Date(d0.getTime()+step*DAY);const te=[];
+    D.forEach((m,k)=>{if(m.d>=d0&&m.d<d1)te.push(k);});
+    if(te.length){const lim=new Date(d0-4*365*DAY),tr=D.filter(m=>m.d<d0&&m.d>=lim);
+      if(tr.length>=70){const M=fit(tr,d0,par,warm);warm=M;
+        for(const k of te){const m=D[k],r=predDC(M,m.h,m.a);
+          rows.push({m,dc:r.p,r,el:eloP(EL.pre[k][0],EL.pre[k][1]),od:oddsP(m.o),real:m.x>m.y?0:m.x===m.y?1:2});}}
+      if(prog)prog(d0);await tick();}
     d0=d1;}
-  if(!rows.length){btout.textContent="Nessuna partita testabile.";return;}
-  let br=0,ll=0,ok=0,ex=0,hi=0,hin=0;
-  for(const r of rows){const y={"1":+(r.real==="1"),"X":+(r.real==="X"),"2":+(r.real==="2")};
-    br+=(r.p1-y["1"])**2+(r.px-y.X)**2+(r.p2-y["2"])**2;ll-=Math.log(
+  return rows;}
+function seasonStarts(D){const s=[0];for(let k=1;k<D.length;k++)if((D[k].d-D[k-1].d)/DAY>45)s.push(k);return s;}
+async function tune(D,prog){
+  const S=seasonStarts(D);if(S.length<2)return {...PAR,note:"una sola stagione: parametri di default"};
+  const cs=S[S.length-1],ps=S[S.length-2],from=new Date(D[ps].d.getTime()+56*DAY),to=D[cs].d;
+  let best=null;
+  for(const xi of [0.001,0.002,0.004])for(const reg of [1.5,5,12]){
+    const par={...PAR,xi,reg,wE:0,wO:0,T:1};
+    const rows=await walk(D,from,to,par,14);
+    const ll=metrics(rows,r=>r.dc).ll;if(prog)prog(`xi=${xi} reg=${reg} → ${ll.toFixed(4)}`);
+    if(!best||ll<best.ll)best={ll,par,rows};}
+  const rows=best.rows,hasOdds=rows.filter(r=>r.od).length>rows.length*0.4;let b2=null;
+  for(const wE of [0,0.15,0.3,0.45])for(const wO of (hasOdds?[0,0.4,0.7]:[0]))for(const T of [0.85,1,1.15]){
+    const P={...best.par,wE,wO,T},ll=metrics(rows,r=>blend(r.dc,r.el,r.od,P)).ll;
+    if(!b2||ll<b2.ll)b2={ll,P};}
+  return {...b2.P,note:`tuning su ${rows.length} partite della stagione precedente (log-loss ${b2.ll.toFixed(4)})`};}
+function predictAll(h,a,od){
+  const r=predDC(MODEL,h,a),el=eloP(EL.R[h]??1450,EL.R[a]??1450),p=blend(r.p,el,od,PAR);
+  return {...r,p,el,od};}
+
+/* ---------- INTERFACCIA ---------- */
+const $=id=>document.getElementById(id);
+function card(h,a,r){const e=r.p.indexOf(Math.max(...r.p)),lab=["1","X","2"];
+  return `<div class="big">${h} – ${a}</div>
+<div class="bar"><div class="b1" style="width:${r.p[0]*100}%">1 ${pc(r.p[0])}</div><div class="bx" style="width:${r.p[1]*100}%">X ${pc(r.p[1])}</div><div class="b2" style="width:${r.p[2]*100}%">2 ${pc(r.p[2])}</div></div>
+<div>Esito più probabile: <b>${lab[e]}</b> (${pc(r.p[e])})</div>
+<div>Risultato più probabile: <b>${r.score}</b> (${pc(r.pscore)})</div>
+<div class="mut">Gol attesi ${r.lh.toFixed(2)}–${r.la.toFixed(2)} · Over 2.5 ${pc(r.o25)} · Gol-Gol ${pc(r.btts)}${r.od?" · incluse quote":""}</div>`;}
+function load(k){try{return JSON.parse(localStorage.getItem(k)||"null");}catch(e){return null;}}
+function save(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
+async function init(forceTune){
+  $("status").textContent="Scarico stagioni e giornate in corso…";
+  const map=new Map(),add=ms=>ms.forEach(m=>{if(m.x!==null&&m.y!==null)map.set(iso(m.d)+m.h+m.a,m);});
+  const seasons=seasonCodes(new Date()),cur=seasons[seasons.length-1];let src=[];
+  add(parseManual(SEED));
+  const up=load("sa_uploads")||[];add(unpack(up));
+  for(const s of seasons){let ms=null;const cache=load("sa_"+s);
+    if(s===cur||!cache){const t=await getText(`https://www.football-data.co.uk/mmz4281/${s}/I1.csv`);
+      if(t){ms=parseCSV(t).filter(m=>m.x!==null);save("sa_"+s,pack(ms));src.push(s+" ✓");}else src.push(s+" ✗");}
+    if(!ms&&cache){ms=unpack(cache);src.push(s+" (cache)");}
+    if(ms)add(ms);}
+  add(parseManual(load("sa_manual")||""));
+  DATA=[...map.values()].sort((a,b)=>a.d-b.d);
+  if(DATA.length<100){$("status").innerHTML="⚠️ Dati insufficienti ("+DATA.length+"). Vai su <b>Dati</b> e carica i CSV.";return;}
+  EL=runElo(DATA);
+  const last=DATA[DATA.length-1].d,ref=new Date(last.getTime()+DAY),lim=new Date(ref-4*365*DAY);
+  const key=iso(last)+DATA.length,cached=load("sa_par");
+  if(cached&&cached.key===key&&!forceTune)PAR=cached.par;
+  else{$("status").textContent="Ottimizzo i parametri (alcuni secondi)…";
+    try{PAR=await tune(DATA,s=>$("status").textContent="Tuning: "+(s.toISOString?iso(s):s));save("sa_par",{key,par:PAR});}catch(e){console.log(e);}}
+  MODEL=fit(DATA.filter(m=>m.d>=lim),ref,PAR);
+  const opt=MODEL.teams.map(t=>`<option>${t}</option>`).join("");$("home").innerHTML=opt;$("away").innerHTML=opt;$("away").selectedIndex=1;
+  const S=seasonStarts(DATA),cm=DATA.length-S[S.length-1];
+  $("status").innerHTML=`✅ ${DATA.length} partite · stagione in corso: <b>${cm}</b> giocate · ultimo risultato <b>${iso(last)}</b><br><span class="mut">Fonti: ${src.join(", ")} · ${PAR.note||""} · xi=${PAR.xi} reg=${PAR.reg} Elo=${PAR.wE} quote=${PAR.wO} T=${PAR.T}</span>`;
+  $("info").textContent=`Stagioni: ${src.join(", ")}. Partite caricate a mano: ${up.length}.`;}
+$("go").onclick=()=>{if(!MODEL)return;if($("home").value===$("away").value){$("out").textContent="Scegli due squadre diverse.";return;}
+  $("out").innerHTML=card($("home").value,$("away").value,predictAll($("home").value,$("away").value,null));};
+$("loadfx").onclick=async()=>{if(!MODEL)return;$("fxout").textContent="Carico…";
+  const t=await getText("https://www.football-data.co.uk/fixtures.csv");
+  if(!t){$("fxout").textContent="Impossibile scaricare il calendario.";return;}
+  const fx=parseCSV(t).filter(m=>m.x===null).sort((a,b)=>a.d-b.d).slice(0,10);
+  $("fxout").innerHTML=fx.length?fx.map(m=>`<div class="fx"><div class="mut">${iso(m.d)}</div>${card(m.h,m.a,predictAll(m.h,m.a,oddsP(m.o)))}</div>`).join(""):"Nessuna partita di Serie A in calendario.";};
+$("runbt").onclick=async()=>{
+  $("btout").textContent="Calcolo in corso…";const S=seasonStarts(DATA),cs=S[S.length-1];
+  const from=new Date(DATA[cs].d.getTime()+28*DAY),rows=await walk(DATA,from,new Date(DATA[DATA.length-1].d.getTime()+DAY),PAR,7,d=>$("btout").textContent="Calcolo… "+iso(d));
+  if(!rows.length){$("btout").textContent="Poche partite nella stagione in corso.";return;}
+  const A=metrics(rows,r=>r.dc),B=metrics(rows,r=>blend(r.dc,r.el,r.od,PAR));
+  const ro=rows.filter(r=>r.od),C=ro.length?metrics(ro,r=>r.od):null,B2=ro.length?metrics(ro,r=>blend(r.dc,r.el,r.od,PAR)):null;
+  const f=m=>`<tr><td>${m[0]}</td><td>${m[1].n}</td><td>${pc(m[1].acc)}</td><td>${m[1].ll.toFixed(3)}</td><td>${m[1].brier.toFixed(3)}</td><td>${m[1].rps.toFixed(3)}</td></tr>`;
+  const last=rows.slice(-10).map(r=>{const p=blend(r.dc,r.el,r.od,PAR),e=p.indexOf(Math.max(...p));
+    return `<tr><td>${iso(r.m.d).slice(5)} ${r.m.h}-${r.m.a}</td><td>${["1","X","2"][e]} ${pc(p[e])} · ${r.r.score}</td><td class="${e===r.real?"ok":"ko"}">${r.m.x}-${r.m.y}</td></tr>`;}).join("");
+  $("btout").innerHTML=`<table><tr><th>Modello</th><th>N</th><th>1X2</th><th>LogL</th><th>Brier</th><th>RPS</th></tr>
+  ${f(["Solo Dixon-Coles",A])}${f(["Ensemble finale",B])}${C?f(["Solo quote",C])+f(["Ensemble (stesse)",B2]):""}</table>
+  <div class="mut">Tiro a caso: LogL 1.099. Parametri scelti sulla stagione precedente, quindi test fuori campione.</div>
+  <div class="mut" style="margin-top:8px">Ultime 10 partite testate</div><table><tr><th>Partita</th><th>Previsione</th><th>Reale</th></tr>${last}</table>`;};
+$("file").onchange=async e=>{let all=load("sa_uploads")?unpack(load("sa_uploads")):[];
+  for(const f of e.target.files)all.push(...parseCSV(await f.text()).filter(m=>m.x!==null));
+  save("sa_uploads",pack(all));await init(true);};
+$("addp").onclick=async()=>{const old=load("sa_manual")||"";save("sa_manual",old+"\n"+$("paste").value);$("paste").value="";await init(true);};
+$("reload").onclick=()=>init(true);
+$("wipe").onclick=async()=>{Object.keys(localStorage).filter(k=>k.startsWith("sa_")).forEach(k=>localStorage.removeItem(k));await init(true);};
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".tabs button").forEach(x=>x.classList.toggle("on",x===b));
+  ["p","f","b","d"].forEach(i=>$(i).classList.toggle("hide",i!==b.dataset.t));});
+init();
+</script></body></html>
